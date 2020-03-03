@@ -279,6 +279,7 @@ public class KeychainModule extends ReactContextBaseJavaModule {
       final CipherStorage current = getCipherStorageForCurrentAPILevel(useBiometry);
       final String rules = getSecurityRulesOrDefault(options);
       final String authenticationPrompt = getAuthenticationPromptOrDefault(options);
+      final DecryptionResult decryptionResult = decryptCredentials(alias, current, resultSet, rules, authenticationPrompt);
 
       final WritableMap credentials = Arguments.createMap();
       credentials.putString(Maps.SERVICE, alias);
@@ -553,13 +554,14 @@ public class KeychainModule extends ReactContextBaseJavaModule {
   private DecryptionResult decryptCredentials(@NonNull final String alias,
                                               @NonNull final CipherStorage current,
                                               @NonNull final ResultSet resultSet,
-                                              @Rules @NonNull final String rules)
+                                              @Rules @NonNull final String rules,
+                                              @NonNull final String authenticationPrompt)
     throws CryptoFailedException, KeyStoreAccessException {
     final String storageName = resultSet.cipherStorageName;
 
     // The encrypted data is encrypted using the current CipherStorage, so we just decrypt and return
     if (storageName.equals(current.getCipherStorageName())) {
-      return decryptToResult(alias, current, resultSet);
+      return decryptToResult(alias, current, resultSet, authenticationPrompt);
     }
 
     // The encrypted data is encrypted using an older CipherStorage, so we need to decrypt the data first,
@@ -570,7 +572,7 @@ public class KeychainModule extends ReactContextBaseJavaModule {
     }
 
     // decrypt using the older cipher storage
-    final DecryptionResult decryptionResult = decryptToResult(alias, oldStorage, resultSet);
+    final DecryptionResult decryptionResult = decryptToResult(alias, oldStorage, resultSet, authenticationPrompt);
 
     if (Rules.AUTOMATIC_UPGRADE.equals(rules)) {
       try {
@@ -588,9 +590,10 @@ public class KeychainModule extends ReactContextBaseJavaModule {
   @NonNull
   private DecryptionResult decryptToResult(@NonNull final String alias,
                                            @NonNull final CipherStorage storage,
-                                           @NonNull final ResultSet resultSet)
+                                           @NonNull final ResultSet resultSet,
+                                           @NonNull final String authenticationPrompt)
     throws CryptoFailedException {
-    final DecryptionResultHandler handler = getInteractiveHandler(storage);
+    final DecryptionResultHandler handler = getInteractiveHandler(storage, authenticationPrompt);
     storage.decrypt(handler, alias, resultSet.username, resultSet.password, SecurityLevel.ANY);
 
     CryptoFailedException.reThrowOnError(handler.getError());
@@ -604,9 +607,10 @@ public class KeychainModule extends ReactContextBaseJavaModule {
 
   /** Get instance of handler that resolves access to the keystore on system request. */
   @NonNull
-  protected DecryptionResultHandler getInteractiveHandler(@NonNull final CipherStorage current) {
+  protected DecryptionResultHandler getInteractiveHandler(@NonNull final CipherStorage current,
+                                                          @NonNull final String authenticationPrompt) {
     if (current.isBiometrySupported() /*&& isFingerprintAuthAvailable()*/) {
-      return new InteractiveBiometric(current);
+      return new InteractiveBiometric(current, authenticationPrompt);
     }
 
     return new NonInteractiveHandler();
@@ -761,11 +765,14 @@ public class KeychainModule extends ReactContextBaseJavaModule {
     private DecryptionResult result;
     private Throwable error;
     private final CipherStorageBase storage;
+    private final String authenticationPrompt;
     private final Executor executor = Executors.newSingleThreadExecutor();
     private DecryptionContext context;
 
-    private InteractiveBiometric(@NonNull final CipherStorage storage) {
+    private InteractiveBiometric(@NonNull final CipherStorage storage,
+                                 @NonNull final String authenticationPrompt) {
       this.storage = (CipherStorageBase) storage;
+      this.authenticationPrompt = authenticationPrompt;
     }
 
     @Override
@@ -853,7 +860,7 @@ public class KeychainModule extends ReactContextBaseJavaModule {
       final BiometricPrompt.PromptInfo info = new BiometricPrompt.PromptInfo.Builder()
         .setTitle("Authentication required")
         .setNegativeButtonText("Cancel")
-        .setSubtitle("Please use biometric authentication to unlock the app")
+        .setSubtitle(this.authenticationPrompt)
         .build();
 
       prompt.authenticate(info);
