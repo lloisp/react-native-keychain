@@ -278,7 +278,7 @@ public class KeychainModule extends ReactContextBaseJavaModule {
       final boolean useBiometry = getUseBiometry(accessControl);
       final CipherStorage current = getCipherStorageForCurrentAPILevel(useBiometry);
       final String rules = getSecurityRulesOrDefault(options);
-      final DecryptionResult decryptionResult = decryptCredentials(alias, current, resultSet, rules);
+      final String authenticationPrompt = getAuthenticationPromptOrDefault(options);
 
       final WritableMap credentials = Arguments.createMap();
       credentials.putString(Maps.SERVICE, alias);
@@ -463,6 +463,25 @@ public class KeychainModule extends ReactContextBaseJavaModule {
     }
 
     return storageName;
+  }
+
+  @NonNull
+  private static String getAuthenticationPromptOrDefault(@Nullable final ReadableMap options) {
+    return getAccessControlOrDefault(options, "Please use biometric authentication to unlock the app");
+  }
+
+  @NonNull
+  private static String getAuthenticationPromptOrDefault(@Nullable final ReadableMap options,
+                                                         @NonNull final String fallback) {
+    String authenticationPrompt = null;
+
+    if (null != options && options.hasKey(Maps.AUTH_PROMPT)) {
+      authenticationPrompt = options.getString(Maps.AUTH_PROMPT);
+    }
+
+    if (null == authenticationPrompt) return fallback;
+
+    return authenticationPrompt;
   }
 
   /** Get access control value from options or fallback to {@link AccessControl#BIOMETRY_ANY}. */
